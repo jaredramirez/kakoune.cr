@@ -1,4 +1,5 @@
 bin
 lib
 releases
-shard.lock
+nix/crystal2nix/result
+result
