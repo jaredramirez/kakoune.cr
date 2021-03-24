@@ -10,12 +10,13 @@ pkgs.stdenv.mkDerivation rec {
   pname = "kakoune.cr";
   version = "nightly-2021-03-17";
   src = ./.;
-  buildInputs = with pkgs; [ crystal jq git ];
+  buildInputs = with pkgs; [ crystal git amber ];
+  propagatedBuildInputsi = with pkgs; [ jq ];
   configurePhase = ''
     ln -s ${crystalLib} lib
   '';
   buildPhase = ''
-    ls -a
+    ambr "jq" "${pkgs.jq}" --no-interactive
     crystal build src/cli.cr -o kcr --release
   '';
   installPhase = ''
