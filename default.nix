@@ -23,7 +23,7 @@ pkgs.stdenv.mkDerivation rec {
   '';
   buildPhase = ''
     ambr "jq" "${pkgs.jq}/bin/jq" --no-interactive src/
-    ambr "git describe" "${pkgs.git}/bin/git describe" --no-interactive src/
+    ambr "git describe --tags --always" "echo \"${version}\"" --no-interactive src/
     crystal build src/cli.cr -o kcr --release
   '';
   installPhase = ''
