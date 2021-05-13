@@ -18,18 +18,26 @@ module Kakoune::CLI
     property working_directory : Path?
     property position : Position?
     property raw = false
+    property stdin = false
     property debug : Bool = ENV["KAKOUNE_DEBUG"]? == "1"
     property kakoune_arguments = [] of String
   end
 
-  def debug(context, arguments)
+  def debug(context, message extended_message)
     message = {
       session: context.session_name,
-      client: context.client_name,
-      arguments: arguments
+      client: context.client_name
     }
+    message = message.merge(extended_message)
+
+    # Write a log message in the terminal.
     print_json(message)
-    context.session.send("echo", ["-debug", "kcr", message.to_json])
+
+    # Write a log message in Kakoune if available.
+    session = context.session
+    if session.exists?
+      session.send("echo", ["-debug", "kcr", message.to_json])
+    end
   end
 
   def start(argv)
@@ -65,13 +73,41 @@ module Kakoune::CLI
         exit
       end
 
+      parser.on("-V", "--version-notes", "Display version notes") do
+        changelog = read("pages/changelog.md")
+
+        # Print version notes
+        puts <<-EOF
+        ---
+        version: #{VERSION}
+        ---
+
+        #{changelog}
+        EOF
+
+        exit
+      end
+
       parser.on("-h", "--help", "Show help") do
         puts parser
         exit
       end
 
+      parser.on("--", "Stop handling options") do
+        parser.stop
+      end
+
+      parser.on("-", "Stop handling options and read stdin") do
+        parser.stop
+        options.stdin = true
+      end
+
       parser.on("tldr", "Show usage") do
         options.command = :tldr
+      end
+
+      parser.on("prompt", "Print prompt") do
+        options.command = :prompt
       end
 
       parser.on("init", "Print functions") do
@@ -118,6 +154,10 @@ module Kakoune::CLI
         options.command = :attach
       end
 
+      parser.on("kill", "Kill session") do
+        options.command = :kill
+      end
+
       parser.on("list", "List sessions") do
         options.command = :list
       end
@@ -160,10 +200,18 @@ module Kakoune::CLI
         parser.on("-R NAME", "--register=NAME", "Register name") do |name|
           options.kakoune_arguments << "%reg{#{name}}"
         end
+
+        parser.on("-S COMMAND", "--shell=COMMAND", "Shell command") do |command|
+          options.kakoune_arguments << "%sh{#{command}}"
+        end
       end
 
       parser.on("cat", "Print buffer content") do
         options.command = :cat
+      end
+
+      parser.on("pipe", "Pipe selections to a program") do
+        options.command = :pipe
       end
 
       parser.on("escape", "Escape arguments") do
@@ -204,6 +252,16 @@ module Kakoune::CLI
     case options.command
     when :tldr
       puts read("pages/tldr.txt")
+
+    when :prompt
+      case context
+      when Client
+        print "%s@%s" % { options.context.client_name, options.context.session_name }
+      when Session
+        print "null@%s" % options.context.session_name
+      else
+        exit(1)
+      end
 
     when :init
       option_parser.parse(["init", "--help"])
@@ -270,6 +328,16 @@ module Kakoune::CLI
 
       Session.new(session_name).attach
 
+    when :kill
+      session_name = argv.fetch(0, options.context.session_name)
+
+      if !session_name
+        STDERR.puts "No session in context"
+        exit(1)
+      end
+
+      Session.new(session_name).kill
+
     when :list
       data = Session.all.flat_map do |session|
         working_directory = session.get("%sh{pwd}")[0]
@@ -322,7 +390,7 @@ module Kakoune::CLI
 
     when :edit
       if context
-        context.fifo(STDIN) unless STDIN.tty?
+        context.fifo(STDIN) if options.stdin
 
         return if argv.empty?
 
@@ -352,7 +420,7 @@ module Kakoune::CLI
           new evaluate-commands -client dummy quit
         EOF
 
-        Process.new("setsid", ["kak", "-ui", "dummy", "-e", open_client] + options.kakoune_arguments + ["--"] + argv)
+        Process.setsid("kak", ["-ui", "dummy", "-e", open_client] + options.kakoune_arguments + ["--"] + argv)
       end
 
     when :send
@@ -361,20 +429,25 @@ module Kakoune::CLI
         exit(1)
       end
 
-      arguments = CommandConstructor.new
+      command_builder = CommandBuilder.new
 
-      if argv.any?
-        arguments.concat([argv])
+      command = if options.raw
+        STDIN.gets_to_end
+      else
+        command_builder.add(argv) if argv.any?
+        command_builder.add(STDIN) if options.stdin
+        command_builder.build
       end
 
-      if !STDIN.tty?
-        input = STDIN.gets_to_end
-        arguments.concat(parse_command_constructor(input)) if input.presence
+      if options.debug
+        message = {
+          constructor: command_builder.constructor,
+          command: command
+        }
+
+        debug(options.context, message)
       end
 
-      debug(options.context, arguments) if options.debug
-
-      command = CommandBuilder.build(arguments)
       context.send(command)
 
     when :echo
@@ -383,9 +456,9 @@ module Kakoune::CLI
       # Example:
       #
       # kcr echo -- evaluate-commands -draft {} |
-      # kcr echo -- execute-keys '<a-i>b' 'i<backspace><esc>' 'a<del><esc>' |
+      # kcr echo - execute-keys '<a-i>b' 'i<backspace><esc>' 'a<del><esc>' |
       # jq --slurp
-      IO.copy(STDIN, STDOUT) unless STDIN.tty?
+      IO.copy(STDIN, STDOUT) if options.stdin
 
       if argv.any?
         print_json(argv)
@@ -402,9 +475,9 @@ module Kakoune::CLI
       # Example:
       #
       # kcr get %val{bufname} |
-      # kcr get %val{buflist} |
+      # kcr get - %val{buflist} |
       # jq --slurp
-      IO.copy(STDIN, STDOUT) unless STDIN.tty?
+      IO.copy(STDIN, STDOUT) if options.stdin
 
       arguments = options.kakoune_arguments + argv
 
@@ -436,19 +509,27 @@ module Kakoune::CLI
         print_json(buffer_contents)
       end
 
+    when :pipe
+      if !context
+        STDERR.puts "No session in context"
+        exit(1)
+      end
+
+      if options.stdin
+        selections = Array(String).from_json(STDIN)
+        context.set_selections_content(selections)
+      else
+        command = argv.shift
+        context.pipe(command, argv)
+      end
+
     when :escape
-      arguments = CommandConstructor.new
-
-      if argv.any?
-        arguments.concat([argv])
+      command = CommandBuilder.build do |builder|
+        builder.add(argv) if argv.any?
+        builder.add(STDIN) if options.stdin
       end
 
-      if !STDIN.tty?
-        input = STDIN.gets_to_end
-        arguments.concat(parse_command_constructor(input)) if input.presence
-      end
-
-      puts CommandBuilder.build(arguments)
+      puts command
 
     when :help
       option_parser.parse(argv + ["--help"])
@@ -542,30 +623,6 @@ module Kakoune::CLI
     end
 
     arguments.replace(unhandled_arguments)
-  end
-
-  # Parses command constructor from JSON.
-  #
-  # Example:
-  #
-  # [
-  #   ["echo", "kanto"],
-  #   ["echo", "johto"]
-  # ]
-  #
-  # Accepts chunks.
-  # Reads the entire input stream into a large array.
-  #
-  # Example:
-  #
-  # ["echo", "kanto"]
-  # ["echo", "johto"]
-  def parse_command_constructor(json)
-    CommandConstructor.from_json(json)
-  rescue
-    json.each_line.map do |json|
-      Array(String).from_json(json)
-    end
   end
 end
 

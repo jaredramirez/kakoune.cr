@@ -4,7 +4,12 @@
 
 kakoune.cr (kcr) is a command-line tool for [Kakoune].
 
+It is a great companion to work with projects, multiple files and headless sessions.
+
 [Kakoune]: https://kakoune.org
+
+[![kakoune.cr](https://img.youtube.com/vi_webp/FUndUED1O7Q/maxresdefault.webp)](https://youtube.com/playlist?list=PLdr-HcjEDx_klQYqXIAmBpywj7ggsDPer "YouTube – kakoune.cr")
+[![YouTube Play Button](https://www.iconfinder.com/icons/317714/download/png/16)](https://youtube.com/playlist?list=PLdr-HcjEDx_klQYqXIAmBpywj7ggsDPer) · [kakoune.cr](https://youtube.com/playlist?list=PLdr-HcjEDx_klQYqXIAmBpywj7ggsDPer)
 
 ###### What can I do?
 
@@ -14,6 +19,10 @@ kakoune.cr (kcr) is a command-line tool for [Kakoune].
 - Write plugins.
 
 Give it a spin: [`kcr tldr`][`tldr`] & [`kcr play`][`play`]
+
+See what’s new with [`kcr --version-notes`][`--version-notes`] or read the [changelog].
+
+[Changelog]: CHANGELOG.md
 
 ###### How does it work?
 
@@ -120,19 +129,22 @@ map -docstring 'New terminal' global normal <c-n> ': connect-terminal<ret>'
 map -docstring 'New popup' global normal + ': connect-popup<ret>'
 map -docstring 'Open Dolphin' global normal <c-o> ': $ dolphin .<ret>'
 map -docstring 'Open Broot' global normal <c-e> ': > broot<ret>'
+map -docstring 'Open sidetree' global normal <c-e> ': > sidetree<ret>'
 map -docstring 'Open files' global normal <c-f> ': + kcr-fzf-files<ret>'
 map -docstring 'Open buffers' global normal <c-b> ': + kcr-fzf-buffers<ret>'
 map -docstring 'Open files by content' global normal <c-g> ': + kcr-fzf-grep<ret>'
-map -docstring 'Open lazygit' global normal <c-l> ': + lazygit<ret>'
+map -docstring 'Open gitui' global normal <c-l> ': + gitui<ret>'
 ```
+
+**Note**: If you are feeling adventurous, you can try [sidetree] as a project drawer.
+
+[sidetree]: https://github.com/topisani/sidetree
 
 Bash example configuration:
 
 `~/.bashrc`
 
 ``` sh
-EDITOR='kcr edit'
-
 alias k='kcr edit'
 alias K='kcr-fzf-shell'
 alias KK='K --working-directory .'
@@ -140,7 +152,10 @@ alias ks='kcr shell --session'
 alias kl='kcr list'
 alias a='kcr attach'
 alias :='kcr send'
+alias :cd='kcr send cd "$PWD"'
+alias cd:='cd $(kcr get --raw --shell pwd)'
 alias :br='KK broot'
+alias :st='KK sidetree'
 alias :cat='kcr cat --raw'
 
 alias val='kcr get --value'
@@ -148,11 +163,22 @@ alias opt='kcr get --option'
 alias reg='kcr get --register'
 ```
 
+[Environment variables] example configuration:
+
+`~/.profile`
+
+``` sh
+export EDITOR='kcr edit'
+export FZF_DEFAULT_OPTS='--multi --layout=reverse --preview-window=down:60%'
+```
+
+[Environment variables]: https://wiki.archlinux.org/index.php/Environment_variables
+
 [XDG MIME Applications] example configuration:
 
 `~/.config/mimeapps.list`
 
-```
+``` ini
 [Default Applications]
 text/plain=kakoune.desktop
 ```
@@ -165,9 +191,34 @@ file -b -i -L <file>
 
 [XDG MIME Applications]: https://wiki.archlinux.org/index.php/XDG_MIME_Applications
 
+Here is a list of [common MIME types], with all types I have personally experimented:
+
+`~/.config/mimeapps.list`
+
+``` ini
+[Default Applications]
+application/csv=kakoune.desktop
+application/json=kakoune.desktop
+application/postscript=kakoune.desktop
+text/html=kakoune.desktop
+text/plain=kakoune.desktop
+text/troff=kakoune.desktop
+text/x-c++=kakoune.desktop
+text/x-c=kakoune.desktop
+text/x-java=kakoune.desktop
+text/x-lisp=kakoune.desktop
+text/x-makefile=kakoune.desktop
+text/xml=kakoune.desktop
+text/x-ruby=kakoune.desktop
+text/x-script.python=kakoune.desktop
+text/x-shellscript=kakoune.desktop
+```
+
+[Common MIME types]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
+
 ## Commands
 
-###### [`tldr`] | [`init`] | [`init kakoune`] | [`init starship`] | [`install`] | [`install commands`] | [`install desktop`] | [`env`] | [`play`] | [`create`] | [`attach`] | [`list`] | [`shell`] | [`edit`] | [`open`] | [`send`] | [`echo`] | [`get`] | [`cat`] | [`escape`] | [`help`]
+###### [`tldr`] | [`prompt`] | [`init`] | [`init kakoune`] | [`init starship`] | [`install`] | [`install commands`] | [`install desktop`] | [`env`] | [`play`] | [`create`] | [`attach`] | [`kill`] | [`list`] | [`shell`] | [`edit`] | [`open`] | [`send`] | [`echo`] | [`get`] | [`cat`] | [`pipe`] | [`escape`] | [`help`]
 
 [Commands]: #commands
 
@@ -180,13 +231,18 @@ file -b -i -L <file>
 -R, --no-raw ⇒ Do not use raw output
 -d, --debug ⇒ Debug mode (Default: $KAKOUNE_DEBUG, 1 for true, 0 for false)
 -v, --version ⇒ Display version
+-V, --version-notes ⇒ Display version notes
 -h, --help ⇒ Show help
+-- ⇒ Stop handling options
+- ⇒ Stop handling options and read stdin
 ```
 
 [`--session`]: #commands
 [`--client`]: #commands
 [`-d`]: #commands
 [`--debug`]: #commands
+[`-V`]: #commands
+[`--version-notes`]: #commands
 
 [`$KAKOUNE_SESSION`]: #commands
 [`$KAKOUNE_CLIENT`]: #commands
@@ -196,6 +252,7 @@ file -b -i -L <file>
 
 ```
 kcr tldr ⇒ Show usage
+kcr prompt ⇒ Print prompt
 kcr init <name> ⇒ Print functions
 kcr init kakoune ⇒ Print Kakoune definitions
 kcr init starship ⇒ Print Starship configuration
@@ -206,14 +263,16 @@ kcr env ⇒ Print Kakoune environment information
 kcr play [file] ⇒ Start playground
 kcr create [session] ⇒ Create a new session
 kcr attach [session] ⇒ Connect to session
+kcr kill [session] ⇒ Kill session
 kcr list ⇒ List sessions
 kcr shell [-d, --working-directory <path>] [command] [arguments] ⇒ Start an interactive shell
 kcr edit [files] [input: fifo] ⇒ Edit files
 kcr open [files] [input: fifo] ⇒ Open files
 kcr send <command> [arguments] [input: json-format] ⇒ Send commands to client at session
 kcr echo [arguments] [input: data-stream] ⇒ Print arguments
-kcr get [-V, --value <name>] [-O, --option <name>] [-R, --register <name>] [expansions] [input: data-stream] ⇒ Get states from a client in session
+kcr get [-V, --value <name>] [-O, --option <name>] [-R, --register <name>] [-S, --shell <command>] [expansions] [input: data-stream] ⇒ Get states from a client in session
 kcr cat [buffers] ⇒ Print buffer content
+kcr pipe <program> [arguments] [input: json-selections] ⇒ Pipe selections to a program
 kcr escape [arguments] [input: json-format] ⇒ Escape arguments
 kcr help [command] ⇒ Show help
 ```
@@ -229,6 +288,16 @@ kcr tldr
 Show [usage][`tldr.txt`].
 
 [`tldr.txt`]: share/kcr/pages/tldr.txt
+
+###### `prompt`
+
+[`prompt`]: #prompt
+
+```
+kcr prompt
+```
+
+Print prompt.  Returns 1 if no session.
 
 ###### `init`
 
@@ -262,7 +331,7 @@ evaluate-commands %sh{
 
 ### Kakoune commands
 
-###### [`connect`] | [`run`] | [`$`] [`connect-program`] | [`>`] [`connect-terminal`] | [`+`] [`connect-popup`]
+###### [`connect`] | [`run`] | [`$`] [`connect-program`] | [`>`] [`connect-terminal`] | [`+`] [`connect-popup`] | [`|`] [`pipe`]
 
 [Kakoune commands]: #kakoune-commands
 
@@ -272,6 +341,7 @@ run <command> [arguments] ⇒ Run a program in a new session
 [$] connect-program <command> [arguments] ⇒ Connect a program
 [>] connect-terminal [command] [arguments] ⇒ Connect a terminal
 [+] connect-popup [command] [arguments] ⇒ Connect a popup
+[|] pipe <program> [arguments] ⇒ Pipe selections to a program
 ```
 
 ###### `connect`
@@ -359,6 +429,23 @@ Connect a popup.
 ```
 
 [fzf integration]: https://github.com/alexherbo2/kakoune.cr/tree/master/share/kcr/commands/fzf
+
+###### `pipe`
+
+[`|`]: #pipe
+[`pipe`]: #pipe
+
+```
+[|] pipe <program> [arguments]
+```
+
+Pipe selections to a program.
+
+**Example** – Sort selections:
+
+``` kak
+| jq sort
+```
 
 ###### `init starship`
 
@@ -460,6 +547,16 @@ kcr attach [session]
 
 Connect to session.
 
+###### `kill`
+
+[`kill`]: #kill
+
+```
+kcr kill [session]
+```
+
+Kill session.
+
 ###### `list`
 
 [`list`]: #list
@@ -543,8 +640,8 @@ It is possible to send multiple commands in a single request with pipes.
 
 ``` sh
 kcr echo -- echo kanto |
-kcr echo -- echo johto |
-kcr send
+kcr echo - echo johto |
+kcr send -
 ```
 
 ### Nested commands
@@ -555,8 +652,8 @@ It is possible to create nested commands with `{}` placeholders and pipes.
 
 ``` sh
 kcr echo -- evaluate-commands -draft {} |
-kcr echo -- execute-keys '<a-i>b' 'i<backspace><esc>' 'a<del><esc>' |
-kcr send
+kcr echo - execute-keys '<a-i>b' 'i<backspace><esc>' 'a<del><esc>' |
+kcr send -
 ```
 
 The `{}` denotes a block for the next pipe.
@@ -595,7 +692,7 @@ Output:
 
 ``` sh
 kcr echo -- evaluate-commands -draft {} |
-kcr echo -- execute-keys '<a-i>b' 'i<backspace><esc>' 'a<del><esc>' |
+kcr echo - execute-keys '<a-i>b' 'i<backspace><esc>' 'a<del><esc>' |
 jq --slurp
 ```
 
@@ -613,7 +710,7 @@ Output:
 [`get`]: #get
 
 ```
-kcr get [-V, --value <name>] [-O, --option <name>] [-R, --register <name>] [expansions] [input: data-stream]
+kcr get [-V, --value <name>] [-O, --option <name>] [-R, --register <name>] [-S, --shell <command>] [expansions] [input: data-stream]
 ```
 
 Get [states][Expansions] from a client in session.
@@ -639,7 +736,7 @@ Output:
 
 ``` sh
 kcr get %val{bufname} |
-kcr get %val{buflist} |
+kcr get - %val{buflist} |
 jq --slurp
 ```
 
@@ -679,6 +776,28 @@ Output:
 [
   "..."
 ]
+```
+
+###### `pipe`
+
+[`pipe`]: #pipe
+
+```
+kcr pipe <program> [arguments] [input: json-selections]
+```
+
+Pipe selections to a program.
+
+**Example** – Sort selections:
+
+``` sh
+kcr pipe jq sort
+```
+
+You can also finalize with a pipe:
+
+``` sh
+kcr get --value selections | jq sort | kcr pipe -
 ```
 
 ###### `escape`

@@ -2,6 +2,7 @@ require "./commands"
 require "./arguments"
 require "./client"
 require "./buffer"
+require "./process"
 
 class Kakoune::Session
   include Commands
@@ -22,7 +23,7 @@ class Kakoune::Session
   end
 
   def create
-    Process.new("setsid", { "kak", "-s", name, "-d" })
+    Process.setsid("kak", { "-s", name, "-d" })
   end
 
   def self.create(name)
@@ -31,6 +32,10 @@ class Kakoune::Session
 
   def attach
     Process.run("kak", { "-c", name }, input: :inherit, output: :inherit, error: :inherit)
+  end
+
+  def kill
+    send("kill")
   end
 
   def self.all
