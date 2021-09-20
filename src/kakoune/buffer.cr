@@ -11,6 +11,10 @@ class Kakoune::Buffer
   def initialize(@session, @name)
   end
 
+  def path
+    Path[name]
+  end
+
   def content
     FIFO.consume do |fifo|
       send("write", [fifo.path.to_s])
@@ -20,7 +24,7 @@ class Kakoune::Buffer
 
   def send(command)
     session.send <<-EOF
-      evaluate-commands -buffer #{Arguments.escape name} -- #{Arguments.escape command}
+      evaluate-commands -buffer #{Arguments.quote name} -- #{Arguments.quote command}
     EOF
   end
 

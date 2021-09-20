@@ -12,14 +12,34 @@ class Kakoune::Session
   def initialize(@name)
   end
 
+  # Add -working-directory switch to evaluate-commands
+  # https://github.com/mawww/kakoune/issues/4065
   def send(command)
+    command = <<-EOF
+      declare-option -hidden str working_directory %sh{pwd}
+      cd #{Arguments.quote Dir.current}
+      try #{Arguments.quote command}
+      cd %opt{working_directory}
+    EOF
+    Log.debug { name }
+    Log.debug { command }
     input = IO::Memory.new(command)
     Process.run("kak", { "-p", name }, input: input)
   end
 
   def send(command, arguments)
-    command = Arguments.escape([command] + arguments)
+    command = Arguments.quote([command] + arguments)
     send(command)
+  end
+
+  def edit(files : Array(Path | String), position : Position?)
+    kakoune_arguments = [] of String
+
+    if position
+      kakoune_arguments << "+%d:%d" % { position.line, position.column }
+    end
+
+    Process.run("kak", ["-c", name] + kakoune_arguments + ["--"] + files, input: :inherit, output: :inherit, error: :inherit)
   end
 
   def create
@@ -73,5 +93,9 @@ class Kakoune::Session
 
   def buffer(name)
     Buffer.new(self, name)
+  end
+
+  def working_directory
+    Path[get("%sh{pwd}")[0]]
   end
 end

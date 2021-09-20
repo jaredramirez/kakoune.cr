@@ -1,46 +1,34 @@
 require "option_parser"
 require "json"
 require "file_utils"
-require "./kakoune"
-require "./env"
-
-PROGRAM_PATH = Path[Process.executable_path || PROGRAM_NAME]
-RUNTIME_PATH = PROGRAM_PATH.join("../../share/kcr").expand
 
 module Kakoune::CLI
   extend self
 
-  KAKOUNE_LOGO_URL = "https://github.com/mawww/kakoune/raw/master/doc/kakoune_logo.svg"
+  RUNTIME_PATH = Path[ENV["KCR_RUNTIME"]]
+
+  KCR_LOGO_URL = "https://github.com/alexherbo2/kcr-resources/raw/master/logo/kcr.svg"
 
   struct Options
-    property command = :command
+    property command : Symbol?
     property context = Context.new(session: ENV["KAKOUNE_SESSION"]?, client: ENV["KAKOUNE_CLIENT"]?)
+    property buffer_names = [] of String
     property working_directory : Path?
-    property position : Position?
-    property raw = false
-    property stdin = false
-    property debug : Bool = ENV["KAKOUNE_DEBUG"]? == "1"
+    property position = Position.new
+    property length = 0
+    property timestamp = 0
+    property? raw = false
+    property? lines = false
+    property? stdin = false
     property kakoune_arguments = [] of String
   end
 
-  def debug(context, message extended_message)
-    message = {
-      session: context.session_name,
-      client: context.client_name
-    }
-    message = message.merge(extended_message)
-
-    # Write a log message in the terminal.
-    print_json(message)
-
-    # Write a log message in Kakoune if available.
-    session = context.session
-    if session.exists?
-      session.send("echo", ["-debug", "kcr", message.to_json])
-    end
-  end
-
   def start(argv)
+    # Environment variables
+    if ENV["KCR_DEBUG"] == "1"
+      Log.level = ::Log::Severity::Debug
+    end
+
     # Options
     options = Options.new
 
@@ -56,6 +44,10 @@ module Kakoune::CLI
         options.context.client_name = name
       end
 
+      parser.on("-b NAME", "--buffer=NAME", "Buffer name") do |name|
+        options.buffer_names << name
+      end
+
       parser.on("-r", "--raw", "Use raw output") do
         options.raw = true
       end
@@ -64,8 +56,12 @@ module Kakoune::CLI
         options.raw = false
       end
 
+      parser.on("-l", "--lines", "Read input as JSON Lines") do
+        options.lines = true
+      end
+
       parser.on("-d", "--debug", "Debug mode") do
-        options.debug = true
+        Log.level = ::Log::Severity::Debug
       end
 
       parser.on("-v", "--version", "Display version") do
@@ -218,14 +214,36 @@ module Kakoune::CLI
         options.command = :escape
       end
 
+      parser.on("set-completion", "Set completion") do
+        options.command = :set_completion
+
+        parser.on("--line=VALUE", "Line number") do |value|
+          options.position.line = value.to_i
+        end
+
+        parser.on("--column=VALUE", "Column number") do |value|
+          options.position.column = value.to_i
+        end
+
+        parser.on("--length=VALUE", "Length value") do |value|
+          options.length = value.to_i
+        end
+
+        parser.on("--timestamp=VALUE", "Timestamp value") do |value|
+          options.timestamp = value.to_i
+        end
+      end
+
       parser.on("help", "Show help") do
         options.command = :help
       end
 
+      parser.on("version", "Display version") do
+        options.command = :version
+      end
+
       parser.invalid_option do |flag|
-        STDERR.puts "Error: Unknown option: #{flag}"
-        STDERR.puts parser
-        exit(1)
+        abort "Error: Unknown option: #{flag}"
       end
     end
 
@@ -244,8 +262,9 @@ module Kakoune::CLI
     environment = {
       "KAKOUNE_SESSION" => options.context.session_name,
       "KAKOUNE_CLIENT" => options.context.client_name,
-      "KAKOUNE_DEBUG" => options.debug ? "1" : "0",
-      "KAKOUNE_VERSION" => VERSION
+      "KCR_RUNTIME" => RUNTIME_PATH.to_s,
+      "KCR_DEBUG" => Log.level.debug? ? "1" : "0",
+      "KCR_VERSION" => VERSION
     }
 
     # Run command
@@ -282,7 +301,7 @@ module Kakoune::CLI
       install_desktop_application
 
     when :env
-      if options.raw
+      if options.raw?
         text = environment.join('\n') do |key, value|
           "#{key}=#{value}"
         end
@@ -293,11 +312,7 @@ module Kakoune::CLI
       end
 
     when :play
-      file = if argv.first?
-        argv.first
-      else
-        RUNTIME_PATH / "init/example.kak"
-      end
+      file = argv.fetch(0, RUNTIME_PATH / "init/example.kak")
 
       config = <<-EOF
         source #{RUNTIME_PATH / "init/kakoune.kak"}
@@ -306,7 +321,7 @@ module Kakoune::CLI
       EOF
 
       # Forward the --debug flag
-      environment["KAKOUNE_DEBUG"] = "1"
+      environment["KCR_DEBUG"] = "1"
 
       # Start playground
       Process.run("kak", ["-e", config], env: environment, input: :inherit, output: :inherit, error: :inherit)
@@ -322,8 +337,7 @@ module Kakoune::CLI
       session_name = argv.fetch(0, options.context.session_name)
 
       if !session_name
-        STDERR.puts "No session in context"
-        exit(1)
+        abort "No session in context"
       end
 
       Session.new(session_name).attach
@@ -332,26 +346,23 @@ module Kakoune::CLI
       session_name = argv.fetch(0, options.context.session_name)
 
       if !session_name
-        STDERR.puts "No session in context"
-        exit(1)
+        abort "No session in context"
       end
 
       Session.new(session_name).kill
 
     when :list
       data = Session.all.flat_map do |session|
-        working_directory = session.get("%sh{pwd}")[0]
+        working_directory = session.working_directory
 
         [{ session: session.name, client: nil, buffer_name: nil, working_directory: working_directory }] +
 
         session.clients.map do |client|
-          buffer_name = client.get("%val{bufname}")[0]
-
-          { session: session.name, client: client.name, buffer_name: buffer_name, working_directory: working_directory }
+          { session: session.name, client: client.name, buffer_name: client.current_buffer.name, working_directory: working_directory }
         end
       end
 
-      if options.raw
+      if options.raw?
         text = data.join('\n') do |data|
           data.values.join('\t') do |field|
             field || "null"
@@ -365,8 +376,7 @@ module Kakoune::CLI
 
     when :shell
       if !context
-        STDERR.puts "No session in context"
-        exit(1)
+        abort "No session in context"
       end
 
       command, arguments = if argv.any?
@@ -390,30 +400,15 @@ module Kakoune::CLI
 
     when :edit
       if context
-        context.fifo(STDIN) if options.stdin
-
-        return if argv.empty?
-
-        absolute_paths = argv.map do |file|
-          Path[file].expand
-        end
-
-        context.edit(absolute_paths)
-        context.edit(absolute_paths.first, options.position) if options.position
+        context.fifo(STDIN) if options.stdin?
+        context.edit(argv, options.position)
       else
         Process.run("kak", options.kakoune_arguments + ["--"] + argv, input: :inherit, output: :inherit, error: :inherit)
       end
 
     when :open
       if context
-        return if argv.empty?
-
-        absolute_paths = argv.map do |file|
-          Path[file].expand
-        end
-
-        context.edit(absolute_paths)
-        context.edit(absolute_paths.first, options.position) if options.position
+        context.edit(argv, options.position)
       else
         open_client = <<-EOF
           rename-client dummy
@@ -425,40 +420,27 @@ module Kakoune::CLI
 
     when :send
       if !context
-        STDERR.puts "No session in context"
-        exit(1)
+        abort "No session in context"
       end
 
       command_builder = CommandBuilder.new
 
-      command = if options.raw
+      command = if options.raw?
         STDIN.gets_to_end
       else
         command_builder.add(argv) if argv.any?
-        command_builder.add(STDIN) if options.stdin
+        command_builder.add(STDIN, options.lines?) if options.stdin? || options.lines?
         command_builder.build
-      end
-
-      if options.debug
-        message = {
-          constructor: command_builder.constructor,
-          command: command
-        }
-
-        debug(options.context, message)
       end
 
       context.send(command)
 
     when :echo
-      # Streaming data
-      #
-      # Example:
+      # Example – Streaming data:
       #
       # kcr echo -- evaluate-commands -draft {} |
-      # kcr echo - execute-keys '<a-i>b' 'i<backspace><esc>' 'a<del><esc>' |
-      # jq --slurp
-      IO.copy(STDIN, STDOUT) if options.stdin
+      # kcr echo - execute-keys '<a-i>b' 'i<backspace><esc>' 'a<del><esc>'
+      IO.copy(STDIN, STDOUT) if options.stdin?
 
       if argv.any?
         print_json(argv)
@@ -466,25 +448,21 @@ module Kakoune::CLI
 
     when :get
       if !context
-        STDERR.puts "No session in context"
-        exit(1)
+        abort "No session in context"
       end
 
-      # Streaming data
+      # Example – Streaming data:
       #
-      # Example:
-      #
-      # kcr get %val{bufname} |
-      # kcr get - %val{buflist} |
-      # jq --slurp
-      IO.copy(STDIN, STDOUT) if options.stdin
+      # kcr get --option pokemon |
+      # kcr get --option regions -
+      IO.copy(STDIN, STDOUT) if options.stdin?
 
       arguments = options.kakoune_arguments + argv
 
       if arguments.any?
         data = context.get(arguments)
 
-        if options.raw
+        if options.raw?
           puts data.join('\n')
         else
           print_json(data)
@@ -493,17 +471,20 @@ module Kakoune::CLI
 
     when :cat
       if !context
-        STDERR.puts "No session in context"
-        exit(1)
+        abort "No session in context"
       end
 
-      buffer_contents = if argv.empty?
-        [options.context.client.current_buffer.content]
+      buffer_names = options.buffer_names + argv
+      session = options.context.session
+      client = options.context.client
+
+      buffer_contents = if buffer_names.empty?
+        [client.current_buffer.content]
       else
-        argv.map { |name| options.context.session.buffer(name).content }
+        buffer_names.map { |name| session.buffer(name).content }
       end
 
-      if options.raw
+      if options.raw?
         puts buffer_contents.join('\n')
       else
         print_json(buffer_contents)
@@ -511,11 +492,10 @@ module Kakoune::CLI
 
     when :pipe
       if !context
-        STDERR.puts "No session in context"
-        exit(1)
+        abort "No session in context"
       end
 
-      if options.stdin
+      if options.stdin?
         selections = Array(String).from_json(STDIN)
         context.set_selections_content(selections)
       else
@@ -526,19 +506,35 @@ module Kakoune::CLI
     when :escape
       command = CommandBuilder.build do |builder|
         builder.add(argv) if argv.any?
-        builder.add(STDIN) if options.stdin
+        builder.add(STDIN, options.lines?) if options.stdin? || options.lines?
       end
 
       puts command
 
+    when :set_completion
+      if !context.is_a?(Client)
+        abort "No client in context"
+      end
+
+      name = argv.first
+
+      command = CompletionBuilder.build(name, options.position.line, options.position.column, options.length, options.timestamp) do |builder|
+        builder.add(STDIN)
+      end
+
+      context.send(command)
+
     when :help
       option_parser.parse(argv + ["--help"])
+
+    when :version
+      puts VERSION
+      exit
 
     else
       # Missing command
       if argv.empty?
-        STDERR.puts option_parser
-        exit(1)
+        abort option_parser
       end
 
       # Extending kakoune.cr
@@ -547,8 +543,7 @@ module Kakoune::CLI
 
       # Cannot find executable
       if !Process.find_executable(command)
-        STDERR.puts "Cannot find executable: #{command}"
-        exit(1)
+        abort "Cannot find executable: #{command}"
       end
 
       # Run subcommand
@@ -569,10 +564,10 @@ module Kakoune::CLI
   end
 
   def install_desktop_application
-    # Download Kakoune logo
-    kakoune_logo_install_path = Path[ENV["XDG_DATA_HOME"], "icons/hicolor/scalable/apps/kakoune.svg"]
+    # Download kakoune.cr logo
+    kcr_logo_install_path = Path[ENV["XDG_DATA_HOME"], "icons/hicolor/scalable/apps/kcr.svg"]
 
-    { KAKOUNE_LOGO_URL, kakoune_logo_install_path.to_s }.tap do |source, destination|
+    { KCR_LOGO_URL, kcr_logo_install_path.to_s }.tap do |source, destination|
       status = Process.run("curl", { "-sSL", source, "--create-dirs", "-o", destination })
 
       if status.success?
@@ -583,10 +578,10 @@ module Kakoune::CLI
     end
 
     # Install the desktop application
-    kakoune_desktop_path = RUNTIME_PATH / "applications/kakoune.desktop"
-    kakoune_desktop_install_path = Path[ENV["XDG_DATA_HOME"], "applications/kakoune.desktop"]
+    kcr_desktop_path = RUNTIME_PATH / "applications/kcr.desktop"
+    kcr_desktop_install_path = Path[ENV["XDG_DATA_HOME"], "applications/kcr.desktop"]
 
-    { kakoune_desktop_path.to_s, kakoune_desktop_install_path.to_s, kakoune_desktop_install_path.dirname }.tap do |source, destination, directory|
+    { kcr_desktop_path.to_s, kcr_desktop_install_path.to_s, kcr_desktop_install_path.dirname }.tap do |source, destination, directory|
       Dir.mkdir_p(directory) unless Dir.exists?(directory)
       FileUtils.cp(source, destination)
       puts "Copied #{source} to #{destination}"
@@ -625,5 +620,3 @@ module Kakoune::CLI
     arguments.replace(unhandled_arguments)
   end
 end
-
-Kakoune::CLI.start(ARGV)

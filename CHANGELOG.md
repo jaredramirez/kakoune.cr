@@ -1,5 +1,33 @@
 # Changelog
 
+## 2021-09-12
+
+- Add support for [JSON Lines]
+- Add `kcr set-completion` command
+
+[JSON Lines]: https://jsonlines.org
+
+## 2021-09-11
+
+- Add `--buffer` option
+
+## 2021-08-18
+
+- Remove integrated scripts
+
+## 2021-07-31
+
+- Add `search` select mode
+
+## 2021-06-12
+
+- Add scripts
+
+## 2021-05-24
+
+- Add kakoune.cr logo
+- Rename `kakoune.desktop` → `kcr.desktop`
+
 ## 2021-04-30
 
 - Add `kcr get --shell` option

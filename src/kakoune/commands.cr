@@ -25,24 +25,6 @@ module Kakoune::Commands
     Arguments.parse(quoted_string)
   end
 
-  def edit(file, position : Position)
-    send("edit", [file.to_s, position.line.to_s, position.column.to_s])
-  end
-
-  def edit(file)
-    send("edit", [file.to_s])
-  end
-
-  def edit(*files)
-    edit(files)
-  end
-
-  def edit(files : Iterable)
-    files.each do |file|
-      edit(file)
-    end
-  end
-
   def fifo(io)
     FIFO.consume do |fifo|
       send("edit!", ["-fifo", fifo.path.to_s, "*fifo*"])
@@ -60,7 +42,7 @@ module Kakoune::Commands
 
   def set_selections_content(selections)
     pipe_selections = <<-EOF
-      set-register dquote #{Arguments.escape selections}
+      set-register dquote #{Arguments.quote selections}
       execute-keys R
     EOF
     send("evaluate-commands", ["-save-regs", %("), pipe_selections])
