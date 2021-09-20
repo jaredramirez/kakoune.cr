@@ -1,4 +1,4 @@
-{ pkgs ? import <nixpkgs> { } }:
+{ pkgs ? import ./nix/pkgs.nix {} }:
 
 # This derivation builds kakoune.cr
 #
@@ -7,16 +7,20 @@
 # to ensure that nothing else is needed to use kakoune.cr outside this derivation.
 
 let
-    crystalLib = pkgs.linkFarm "crystal-lib" (pkgs.lib.mapAttrsToList (name: value: {
-      inherit name;
-      path = builtins.fetchGit value;
-    }) (import ./nix/shard.nix));
+  crystalLib = pkgs.linkFarm "crystal-lib" (
+    pkgs.lib.mapAttrsToList (
+      name: value: {
+        inherit name;
+        path = builtins.fetchGit value;
+      }
+    ) (import ./nix/shard.nix)
+  );
 in
 pkgs.stdenv.mkDerivation rec {
   pname = "kakoune.cr";
   version = "nightly-2021-03-17";
   src = ./.;
-  buildInputs = with pkgs; [ crystal amber ];
+  buildInputs = with pkgs; [ crystal_1_0 amber ];
   propagatedBuildInputs = with pkgs; [ jq fzf bat ripgrep git ];
   configurePhase = ''
     ln -s ${crystalLib} lib
@@ -24,7 +28,7 @@ pkgs.stdenv.mkDerivation rec {
   buildPhase = ''
     ambr "jq" "${pkgs.jq}/bin/jq" --no-interactive src/
     ambr "git describe --tags --always" "echo \"${version}\"" --no-interactive src/
-    crystal build src/cli.cr -o kcr --release
+    ${pkgs.crystal_1_0}/bin/crystal build src/cli.cr -o kcr --release
   '';
   installPhase = ''
     bin_dir="$out/bin"
@@ -45,6 +49,5 @@ pkgs.stdenv.mkDerivation rec {
     cp $(ls share/kcr/commands/*/kcr-*) "$bin_dir"
     cp "kcr" "$kcr_bin"
     cp -r share "$out/share"
-
   '';
 }

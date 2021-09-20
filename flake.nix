@@ -7,25 +7,20 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-    { overlay = final: prev:
-        let pkgs = nixpkgs.legacyPackages.${prev.system};
-        in
-        { kakoune-cr = import ./default.nix { inherit pkgs; };
-          crystal2nix = import ./nix/crystal2nix/default.nix { inherit pkgs; };
-        };
-    }
-    //
     flake-utils.lib.eachDefaultSystem (
       system:
         let
-            pkgs = import nixpkgs { inherit system; overlays = [ self.overlay ]; };
+          pkgs = import nixpkgs { inherit system; };
+          kakoune-cr = import ./default.nix { inherit pkgs; };
+          crystal2nix = import ./nix/crystal2nix/default.nix { inherit pkgs; };
         in
-        { packages =
-            flake-utils.lib.flattenTree {
-              crystal2nix = pkgs.crystal2nix;
-              kakoune-cr = pkgs.kakoune-cr;
-            };
-          defaultPackage = pkgs.kakoune-cr;
-        }
+          {
+            packages =
+              flake-utils.lib.flattenTree {
+                crystal2nix = crystal2nix;
+                kakoune-cr = kakoune-cr;
+              };
+            defaultPackage = kakoune-cr;
+          }
     );
 }
